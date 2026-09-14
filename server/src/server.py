@@ -103,7 +103,7 @@ def create_app():
             db_ok = True
         except Exception:
             db_ok = False
-        return jsonify({"message": "The server is up and running.", "db_connected": db_ok}), 200
+        return jsonify({"message": "The server is up and running.test", "db_connected": db_ok}), 200
 
     # POST /api/create-user {email, login, password}
     @app.post("/api/create-user")
