@@ -1,0 +1,2 @@
+from watermarking_method import WatermarkingMethod
+
