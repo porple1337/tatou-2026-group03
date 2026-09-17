@@ -1,7 +1,8 @@
 import os
 import io
 import hashlib
-import datetime as dt
+import secrets
+import shutil
 from pathlib import Path
 from functools import wraps
 
@@ -31,6 +32,7 @@ def create_app():
     # --- Config ---
     app.config["SECRET_KEY"] = os.environ.get("SECRET_KEY", "dev-secret-change-me")
     app.config["STORAGE_DIR"] = Path(os.environ.get("STORAGE_DIR", "./storage")).resolve()
+    app.config["MAX_CONTENT_LENGTH"] = 10 * 1024 * 1024
     app.config["TOKEN_TTL_SECONDS"] = int(os.environ.get("TOKEN_TTL_SECONDS", "86400"))
 
     app.config["DB_USER"] = os.environ.get("DB_USER", "tatou")
@@ -170,16 +172,35 @@ def create_app():
         if not file or file.filename == "":
             return jsonify({"error": "empty filename"}), 400
 
-        fname = file.filename
+        original_name = file.filename
 
-        user_dir = app.config["STORAGE_DIR"] / "files" / g.user["login"]
+        if not original_name.lower().endswith(".pdf"):
+            return jsonify({"error": "only PDF files are accepted"}), 400 
+        display_name = secure_filename(original_name)[:120]
+
+        if not display_name:
+            display_name = "document.pdf"
+        header = file.stream.read(5)
+        file.stream.seek(0)
+
+        if header != b"%PDF-":
+            return jsonify({"error": "invalid PDF signature"}), 400
+
+        user_dir = app.config["STORAGE_DIR"] / "files" / str(g.user["id"])
         user_dir.mkdir(parents=True, exist_ok=True)
 
-        ts = dt.datetime.utcnow().strftime("%Y%m%dT%H%M%S%fZ")
-        final_name = request.form.get("name") or fname
-        stored_name = f"{ts}__{fname}"
-        stored_path = user_dir / stored_name
-        file.save(stored_path)
+        final_name = request.form.get("name") or display_name
+
+        stored_name = f"{secrets.token_hex(16)}.pdf"
+        storage_root = Path(app.config["STORAGE_DIR"]).resolve()
+        stored_path = (user_dir / stored_name).resolve()
+
+        try:
+            stored_path.relative_to(storage_root)
+        except ValueError:
+            return jsonify({"error": "invalid storage path"}), 500
+        with stored_path.open("xb") as output:
+            shutil.copyfileobj(file.stream, output)
 
         sha_hex = _sha256_file(stored_path)
         size = stored_path.stat().st_size
