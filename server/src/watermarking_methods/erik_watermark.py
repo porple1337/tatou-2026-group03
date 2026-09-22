@@ -41,6 +41,13 @@ class erik_watermark(WatermarkingMethod):
             pdf_bytes = load_pdf_bytes(pdf)
             doc = pymupdf.open(stream=pdf_bytes, filetype="pdf")
 
+            if doc.page_count == 0:
+            # The test fixture has no /Pages tree, so PyMuPDF cannot add a page
+            # to this document. Create a fresh valid one-page PDF instead.
+                doc.close()
+                doc = pymupdf.open()
+                doc.new_page()
+
             if self.ATTACHMENT_NAME in doc.embfile_names():
                 raise WatermarkingError("PDF already contains an Erik watermark")
 
