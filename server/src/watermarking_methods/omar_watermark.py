@@ -27,7 +27,7 @@ MAX_PDF_PAGES = 500
 
 
 class OmarWatermark(WatermarkingMethod):
-    name: Final[str] = "omar-secure"
+    name: Final[str] = "omar-watermark"
 
     _MAGIC: Final[bytes] = b"\n%%WM-OMAR-AESSIV:v1\n"
     _CONTEXT: Final[bytes] = b"tatou:omar-watermark:v1"
