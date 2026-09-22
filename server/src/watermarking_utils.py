@@ -44,6 +44,7 @@ from watermarking_method import (
 from add_after_eof import AddAfterEOF
 from unsafe_bash_bridge_append_eof import UnsafeBashBridgeAppendEOF
 from watermarking_methods.erik_watermark import erik_watermark
+from watermarking_methods.omar_watermark import OmarWatermark
 
 # --------------------
 # Method registry
@@ -52,7 +53,8 @@ from watermarking_methods.erik_watermark import erik_watermark
 METHODS: Dict[str, WatermarkingMethod] = {
     AddAfterEOF.name: AddAfterEOF(),
     UnsafeBashBridgeAppendEOF.name: UnsafeBashBridgeAppendEOF(),
-    erik_watermark.name: erik_watermark()
+    erik_watermark.name: erik_watermark(),
+    OmarWatermark.name: OmarWatermark(),
 }
 """Registry of available watermarking methods.
 
