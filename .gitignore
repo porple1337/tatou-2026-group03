@@ -213,4 +213,5 @@ flag
 entrypoint.sh
 
 #secrets
-server_private_key.asc
+server_priv.asc
+/server/src/public_keys/Test_Group.asc
