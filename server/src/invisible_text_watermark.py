@@ -5,9 +5,9 @@ import hashlib
 import hmac
 import json
 import re
-from typing import Final
+from typing import ClassVar, Final
 
-import fitz  # PyMuPDF
+import pymupdf as fitz
 
 from watermarking_method import (
     InvalidKeyError,
@@ -20,7 +20,15 @@ from watermarking_method import (
 
 
 class InvisibleTextWatermark(WatermarkingMethod):
-    name: Final[str] = "invisible-text-v1"
+    """
+    Watermarking method that embeds an authenticated secret as
+    invisible text inside the PDF page content.
+
+    The watermark is inserted on every page. It is not visible when
+    rendering the PDF, but can be extracted again using read_secret().
+    """
+
+    name: ClassVar[str] = "invisible-text-v1"
 
     _MAGIC: Final[str] = "TATOU-WM1:"
     _CONTEXT: Final[bytes] = b"tatou:invisible-text:v1:"
@@ -37,6 +45,10 @@ class InvisibleTextWatermark(WatermarkingMethod):
         pdf: PdfSource,
         position: str | None = None,
     ) -> bool:
+        """
+        Return True if the PDF can be opened, contains at least one page,
+        and does not require a password.
+        """
         try:
             data = load_pdf_bytes(pdf)
 
@@ -53,11 +65,17 @@ class InvisibleTextWatermark(WatermarkingMethod):
         key: str,
         position: str | None = None,
     ) -> bytes:
+        """
+        Embed the secret as invisible text on every page.
 
-        if not secret:
+        The secret is stored together with an HMAC-SHA256 value so that
+        read_secret() can detect whether the correct key was provided.
+        """
+
+        if not isinstance(secret, str) or not secret:
             raise ValueError("Secret must be a non-empty string")
 
-        if not key:
+        if not isinstance(key, str) or not key:
             raise ValueError("Key must be a non-empty string")
 
         data = load_pdf_bytes(pdf)
@@ -69,7 +87,11 @@ class InvisibleTextWatermark(WatermarkingMethod):
                 if document.page_count == 0:
                     raise WatermarkingError("PDF contains no pages")
 
-                # Put the watermark on every page.
+                if document.needs_pass:
+                    raise WatermarkingError(
+                        "Password-protected PDFs are not supported"
+                    )
+
                 for page in document:
                     page.insert_text(
                         fitz.Point(20, 20),
@@ -87,6 +109,7 @@ class InvisibleTextWatermark(WatermarkingMethod):
 
         except WatermarkingError:
             raise
+
         except Exception as exc:
             raise WatermarkingError(
                 "Failed to add invisible watermark"
@@ -97,8 +120,14 @@ class InvisibleTextWatermark(WatermarkingMethod):
         pdf: PdfSource,
         key: str,
     ) -> str:
+        """
+        Locate the invisible watermark and return the embedded secret.
 
-        if not key:
+        Raises InvalidKeyError if the watermark exists but the key
+        does not match.
+        """
+
+        if not isinstance(key, str) or not key:
             raise ValueError("Key must be a non-empty string")
 
         data = load_pdf_bytes(pdf)
@@ -106,11 +135,17 @@ class InvisibleTextWatermark(WatermarkingMethod):
         try:
             with fitz.open(stream=data, filetype="pdf") as document:
 
+                if document.needs_pass:
+                    raise WatermarkingError(
+                        "Password-protected PDFs are not supported"
+                    )
+
                 for page in document:
                     text = page.get_text("text")
 
                     match = re.search(
-                        rf"{re.escape(self._MAGIC)}([A-Za-z0-9_\-=]+)",
+                        rf"{re.escape(self._MAGIC)}"
+                        rf"([A-Za-z0-9_\-=]+)",
                         text,
                     )
 
@@ -122,6 +157,13 @@ class InvisibleTextWatermark(WatermarkingMethod):
 
         except InvalidKeyError:
             raise
+
+        except SecretNotFoundError:
+            raise
+
+        except WatermarkingError:
+            raise
+
         except Exception as exc:
             raise SecretNotFoundError(
                 "Could not read watermark"
@@ -136,6 +178,18 @@ class InvisibleTextWatermark(WatermarkingMethod):
         secret: str,
         key: str,
     ) -> str:
+        """
+        Create the encoded watermark record.
+
+        Format:
+
+            TATOU-WM1:<base64url(JSON)>
+
+        The JSON contains:
+            version
+            secret
+            HMAC
+        """
 
         secret_bytes = secret.encode("utf-8")
 
@@ -156,6 +210,7 @@ class InvisibleTextWatermark(WatermarkingMethod):
         payload_bytes = json.dumps(
             payload,
             separators=(",", ":"),
+            sort_keys=True,
         ).encode("utf-8")
 
         encoded = base64.urlsafe_b64encode(
@@ -169,19 +224,43 @@ class InvisibleTextWatermark(WatermarkingMethod):
         encoded: str,
         key: str,
     ) -> str:
+        """
+        Decode and verify a watermark record.
+        """
 
         try:
             payload_bytes = base64.urlsafe_b64decode(
                 encoded.encode("ascii")
             )
 
-            payload = json.loads(payload_bytes)
-
-            secret_bytes = base64.b64decode(
-                payload["secret"]
+            payload = json.loads(
+                payload_bytes.decode("utf-8")
             )
 
-            stored_mac = payload["mac"]
+            if payload.get("v") != 1:
+                raise SecretNotFoundError(
+                    "Unsupported watermark version"
+                )
+
+            encoded_secret = payload.get("secret")
+            stored_mac = payload.get("mac")
+
+            if not isinstance(encoded_secret, str):
+                raise SecretNotFoundError(
+                    "Malformed watermark"
+                )
+
+            if not isinstance(stored_mac, str):
+                raise SecretNotFoundError(
+                    "Malformed watermark"
+                )
+
+            secret_bytes = base64.b64decode(
+                encoded_secret
+            )
+
+        except SecretNotFoundError:
+            raise
 
         except Exception as exc:
             raise SecretNotFoundError(
@@ -202,4 +281,9 @@ class InvisibleTextWatermark(WatermarkingMethod):
                 "Incorrect watermark key"
             )
 
-        return secret_bytes.decode("utf-8")
+        try:
+            return secret_bytes.decode("utf-8")
+
+        except UnicodeDecodeError as exc:
+            raise SecretNotFoundError(
+                "Watermark contains invalid secret data") from exc
