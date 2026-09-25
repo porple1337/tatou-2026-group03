@@ -211,3 +211,7 @@ flag
 
 #docker init process
 entrypoint.sh
+
+#secrets
+server_priv.asc
+/server/src/public_keys/Test_Group.asc
