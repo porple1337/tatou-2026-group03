@@ -25,6 +25,13 @@ import watermarking_utils as WMUtils
 from watermarking_method import WatermarkingMethod
 from watermarking_methods import erik_watermark
 #from watermarking_utils import METHODS, apply_watermark, read_watermark, explore_pdf, is_watermarking_applicable, get_method
+from threading import Lock
+from rmap_method import (
+    RMAPConfigurationError,
+    RMAPError,
+    RMAPMessageError,
+    RMAPService
+)
 
 def create_app():
     app = Flask(__name__)
@@ -87,6 +94,197 @@ def create_app():
             for chunk in iter(lambda: f.read(1024 * 1024), b""):
                 h.update(chunk)
         return h.hexdigest()
+
+    class RMAPIssuanceError(RuntimeError):
+        """Raised when a validated RMAP request cannot receive its PDF."""
+
+    rmap_initialization_lock = Lock()
+
+    def _required_rmap_setting(name: str) -> str:
+        value = os.environ.get(name, "").strip()
+        if not value:
+            raise RMAPConfigurationError(f"Missing required setting: {name}")
+        return value
+
+    def get_rmap_service() -> RMAPService:
+        """
+        Create one RMAPService per Flask process.
+
+        The library remembers Message 1 while waiting for Message 2, so the
+        same service object must handle both requests.
+        """
+        service = app.extensions.get("rmap_service")
+        if service is not None:
+            return service
+
+        with rmap_initialization_lock:
+            service = app.extensions.get("rmap_service")
+            if service is None:
+                service = RMAPService(
+                    server_public_key=_required_rmap_setting(
+                        "RMAP_SERVER_PUBLIC_KEY"
+                    ),
+                    server_private_key=_required_rmap_setting(
+                        "RMAP_SERVER_PRIVATE_KEY"
+                    ),
+                    client_keys_dir=_required_rmap_setting(
+                        "RMAP_CLIENT_KEYS_DIR"
+                    ),
+                    passphrase=os.environ.get("RMAP_SERVER_PASSPHRASE") or None,
+                )
+                app.extensions["rmap_service"] = service
+
+        return service
+
+    def issue_rmap_version(identity: str, link: str) -> None:
+        """
+        Create the group-specific PDF and its Versions database row.
+
+        This must succeed before encrypted RMAP Response 2 is returned.
+        """
+        try:
+            source_document_id = int(
+                _required_rmap_setting("RMAP_SOURCE_DOCUMENT_ID")
+            )
+        except ValueError as exc:
+            raise RMAPConfigurationError(
+                "RMAP_SOURCE_DOCUMENT_ID must be an integer"
+            ) from exc
+
+        method_name = _required_rmap_setting("RMAP_WATERMARK_METHOD")
+        watermark_key = _required_rmap_setting("RMAP_WATERMARK_KEY")
+        storage_root = app.config["STORAGE_DIR"].resolve()
+
+        # Find the uploaded source document configured for RMAP.
+        try:
+            with get_engine().connect() as conn:
+                source_row = conn.execute(
+                    text("""
+                        SELECT id, path
+                        FROM Documents
+                        WHERE id = :document_id
+                        LIMIT 1
+                    """),
+                    {"document_id": source_document_id},
+                ).first()
+        except Exception as exc:
+            app.logger.exception("Could not load the RMAP source document")
+            raise RMAPIssuanceError(
+                "The RMAP source document is unavailable"
+            ) from exc
+
+        if not source_row:
+            raise RMAPIssuanceError(
+                "The configured RMAP source document does not exist"
+            )
+
+        try:
+            source_path = _safe_resolve_under_storage(
+                str(source_row.path),
+                storage_root,
+            )
+        except RuntimeError as exc:
+            raise RMAPIssuanceError(
+                "The RMAP source document path is invalid"
+            ) from exc
+
+        if not source_path.is_file():
+            raise RMAPIssuanceError(
+                "The RMAP source PDF is missing from storage"
+            )
+
+        watermark_secret = f"rmap:{identity}:{link}"
+
+        try:
+            if not WMUtils.is_watermarking_applicable(
+                method=method_name,
+                pdf=str(source_path),
+                position=None,
+            ):
+                raise RMAPIssuanceError(
+                    "The configured watermark method cannot watermark "
+                    "the RMAP source PDF"
+                )
+
+            watermarked_bytes = WMUtils.apply_watermark(
+                method=method_name,
+                pdf=str(source_path),
+                secret=watermark_secret,
+                key=watermark_key,
+                position=None,
+            )
+        except RMAPIssuanceError:
+            raise
+        except Exception as exc:
+            app.logger.exception("RMAP watermarking failed")
+            raise RMAPIssuanceError(
+                "Could not create the watermarked PDF"
+            ) from exc
+
+        if not isinstance(watermarked_bytes, (bytes, bytearray)):
+            raise RMAPIssuanceError(
+                "Watermarking returned an invalid PDF"
+            )
+
+        output_dir = storage_root / "rmap_versions"
+        output_dir.mkdir(parents=True, exist_ok=True)
+
+        # `link` has already been validated by RMAPService as 32 lowercase hex.
+        output_path = (output_dir / f"{link}.pdf").resolve()
+
+        try:
+            output_path.relative_to(storage_root)
+        except ValueError as exc:
+            raise RMAPIssuanceError(
+                "The generated RMAP output path is invalid"
+            ) from exc
+
+        # Exclusive creation prevents one request from overwriting another PDF.
+        try:
+            with output_path.open("xb") as output_file:
+                output_file.write(watermarked_bytes)
+        except FileExistsError as exc:
+            raise RMAPIssuanceError(
+                "An RMAP document already exists for this link"
+            ) from exc
+        except OSError as exc:
+            app.logger.exception("Could not save RMAP output PDF")
+            raise RMAPIssuanceError(
+                "Could not save the watermarked PDF"
+            ) from exc
+
+        try:
+            with get_engine().begin() as conn:
+                conn.execute(
+                    text("""
+                        INSERT INTO Versions
+                            (documentid, link, intended_for, secret,
+                             method, position, path)
+                        VALUES
+                            (:documentid, :link, :intended_for, :secret,
+                             :method, :position, :path)
+                    """),
+                    {
+                        "documentid": int(source_row.id),
+                        "link": link,
+                        "intended_for": identity,
+                        "secret": watermark_secret,
+                        "method": method_name,
+                        "position": "",
+                        "path": str(output_path),
+                    },
+                )
+        except Exception as exc:
+            # Avoid leaving a usable file without its corresponding DB record.
+            try:
+                output_path.unlink(missing_ok=True)
+            except OSError:
+                app.logger.exception("Could not remove orphaned RMAP PDF")
+
+            app.logger.exception("Could not save RMAP version metadata")
+            raise RMAPIssuanceError(
+                "Could not record the watermarked PDF"
+            ) from exc
 
     # --- Routes ---
     
@@ -444,6 +642,61 @@ def create_app():
 
         resp.headers["Cache-Control"] = "private, max-age=0"
         return resp
+
+    # POST /api/rmap-initiate
+    #
+    # RMAP Message 1 in, encrypted Response 1 out.
+    # No ordinary login is required: RMAP authenticates the client by PGP key.
+    @app.post("/api/rmap-initiate")
+    def rmap_initiate():
+        try:
+            response = get_rmap_service().initiate(
+                request.get_json(silent=True)
+            )
+            return jsonify(response), 200
+
+        except RMAPConfigurationError:
+            app.logger.exception("RMAP is not configured correctly")
+            return jsonify({"error": "RMAP service is unavailable"}), 503
+
+        except (RMAPMessageError, RMAPError):
+            return jsonify({"error": "Invalid RMAP Message 1"}), 400
+
+    # POST /api/rmap-get-link
+    #
+    # RMAP Message 2 in. Create the unique document first, then return
+    # encrypted Response 2 containing the 32-character result link.
+    @app.post("/api/rmap-get-link")
+    def rmap_get_link():
+        try:
+            completion = get_rmap_service().complete(
+                request.get_json(silent=True)
+            )
+
+        except RMAPConfigurationError:
+            app.logger.exception("RMAP is not configured correctly")
+            return jsonify({"error": "RMAP service is unavailable"}), 503
+
+        except (RMAPMessageError, RMAPError):
+            return jsonify({"error": "Invalid RMAP Message 2"}), 400
+
+        try:
+            issue_rmap_version(
+                identity=completion.identity,
+                link=completion.link,
+            )
+
+        except RMAPConfigurationError:
+            app.logger.exception("RMAP watermark configuration is invalid")
+            return jsonify({"error": "RMAP service is unavailable"}), 503
+
+        except RMAPIssuanceError:
+            app.logger.exception("Could not issue RMAP document")
+            return jsonify({
+                "error": "Could not create the watermarked document"
+            }), 503
+
+        return jsonify(completion.response), 200
     
     # Helper: resolve path safely under STORAGE_DIR (handles absolute/relative)
     def _safe_resolve_under_storage(p: str, storage_root: Path) -> Path:
