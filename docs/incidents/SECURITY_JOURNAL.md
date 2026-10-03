@@ -13,7 +13,7 @@
 
 **Detected:** 2026-09-15 20:55
 **What Happened:** We got sent an automated e-mail informing us of our flag_1 got captured.
-**Evidence:** We documented nmap scans, and also intrusion into our database. We could not determine the method of intrusion but we deducted that it most likely was sql injection or usage of default login credentials. Logs and screenshots are stored outside of git for security reasons.
+**Evidence:** We documented nmap scans, and also intrusion into our database. We could not determine the method of intrusion but SQL injection and default credentials were considered as possible explanations, but the available evidence was insufficient to establish the intrusion method.
 **Impact:** We got our flag stolen.
 **Actions taken:** The teacher's email confirms the flag capture, but the available evidence does
 not establish the request, account, or vulnerability used. Several serious
@@ -29,8 +29,8 @@ Here are the four actions taken:
   and parameterize the document lookup.
 - **Owner:** NattensK
 - **Reference:** `2c19e0d9a0439c465a05ce8333ac2e447bfa5e8e`
-- **Verification:** Security-specific behavioral test still needed.
-- **Status:** Implemented; verification remains open.
+- **Verification:** The cross-user deletion test returned `404` and confirmed that the target document remained in the database.
+- **Status:** Implemented and verified locally for document deletion.
 
 ### 2. Shell-backed watermark execution
 
@@ -54,6 +54,14 @@ Here are the four actions taken:
 - **Action:** Run pytest automatically for pushes and pull requests.
 - **Owner:** Erik
 - **Reference:** `68d4891`
-- **Verification:** Local suite completed with 10 passed and 6 skipped; an
-  Actions result has not been recorded.
-- **Status:** Implemented; security coverage remains open.
+- **Verification:** The workflow was corrected to run pytest from the `server/` directory. The local suite completed with 11 passed and 6 skipped; an Actions result has not yet been recorded.
+- **Status:** Implemented locally; CI confirmation remains open.
+
+
+### 5. Cross-user document authorization regression test
+
+- **Action:** Added an automated test proving that one authenticated user cannot delete a document owned by another user.
+- **Owner:** SAMM specialist - Jens
+- **Reference:** 
+- **Verification:** `test_user_cannot_delete_another_users_document` authenticated as User 2 and attempted to delete a document owned by User 1. The endpoint returned `404`, and a database query confirmed that the document remained present. The complete local suite reported 11 passed and 6 skipped.
+- **Status:** Implemented and verified locally; GitHub Actions confirmation remains open.
