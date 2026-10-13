@@ -3,6 +3,7 @@ import io
 import hashlib
 import secrets
 import shutil
+import logging
 from pathlib import Path
 from functools import wraps
 
@@ -31,6 +32,13 @@ from rmap_method import (
     RMAPError,
     RMAPMessageError,
     RMAPService
+)
+
+logger = logging.getLogger("security")
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s %(levelname)s %(message)s"
 )
 
 def create_app():
@@ -351,11 +359,28 @@ def create_app():
                     text("SELECT id, email, login, hpassword FROM Users WHERE email = :email LIMIT 1"),
                     {"email": email},
                 ).first()
-        except Exception as e:
-            return jsonify({"error": f"database error: {str(e)}"}), 503
+        except Exception:
+            logger.exception(
+                "event=login_database_error ip=%s email=%s",
+                request.remote_addr,
+                email,
+            )
+            return jsonify({"error": "database unavailable"}), 503
 
         if not row or not check_password_hash(row.hpassword, password):
+            logger.warning(
+                "event=login_failed ip=%s email=%s",
+                request.remote_addr,
+                email,
+            )
             return jsonify({"error": "invalid credentials"}), 401
+
+        logger.info(
+            "event=login_success ip=%s user_id=%s email=%s",
+            request.remote_addr,
+            row.id,
+            row.email,
+        )
 
         token = _serializer().dumps({"uid": int(row.id), "login": row.login, "email": row.email})
         return jsonify({"token": token, "token_type": "bearer", "expires_in": app.config["TOKEN_TTL_SECONDS"]}), 200
