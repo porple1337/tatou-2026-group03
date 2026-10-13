@@ -589,6 +589,12 @@ def create_app():
 
         # Don’t leak whether a doc exists for another user
         if not row:
+            logger.warning(
+                "event=document_access_denied ip=%s user_id=%s document_id=%s",
+                request.remote_addr,
+                g.user["id"],
+                document_id,
+            )
             return jsonify({"error": "document not found"}), 404
 
         file_path = Path(row.path)
@@ -618,6 +624,14 @@ def create_app():
             resp.set_etag(row.sha256_hex.lower())
 
         resp.headers["Cache-Control"] = "private, max-age=0, must-revalidate"
+
+        logger.info(
+            "event=document_access_success ip=%s user_id=%s document_id=%s",
+            request.remote_addr,
+            g.user["id"],
+            document_id,
+        )
+
         return resp
     
     # GET /api/get-version/<link>  → returns the watermarked PDF (inline)
