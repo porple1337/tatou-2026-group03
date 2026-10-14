@@ -3,6 +3,7 @@ import io
 import hashlib
 import secrets
 import shutil
+import logging
 from pathlib import Path
 from functools import wraps
 
@@ -31,6 +32,13 @@ from rmap_method import (
     RMAPError,
     RMAPMessageError,
     RMAPService
+)
+
+logger = logging.getLogger("security")
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s %(levelname)s %(message)s"
 )
 
 def create_app():
@@ -351,11 +359,28 @@ def create_app():
                     text("SELECT id, email, login, hpassword FROM Users WHERE email = :email LIMIT 1"),
                     {"email": email},
                 ).first()
-        except Exception as e:
-            return jsonify({"error": f"database error: {str(e)}"}), 503
+        except Exception:
+            logger.exception(
+                "event=login_database_error ip=%s email=%s",
+                request.remote_addr,
+                email,
+            )
+            return jsonify({"error": "database unavailable"}), 503
 
         if not row or not check_password_hash(row.hpassword, password):
+            logger.warning(
+                "event=login_failed ip=%s email=%s",
+                request.remote_addr,
+                email,
+            )
             return jsonify({"error": "invalid credentials"}), 401
+
+        logger.info(
+            "event=login_success ip=%s user_id=%s email=%s",
+            request.remote_addr,
+            row.id,
+            row.email,
+        )
 
         token = _serializer().dumps({"uid": int(row.id), "login": row.login, "email": row.email})
         return jsonify({"token": token, "token_type": "bearer", "expires_in": app.config["TOKEN_TTL_SECONDS"]}), 200
@@ -564,6 +589,12 @@ def create_app():
 
         # Don’t leak whether a doc exists for another user
         if not row:
+            logger.warning(
+                "event=document_access_denied ip=%s user_id=%s document_id=%s",
+                request.remote_addr,
+                g.user["id"],
+                document_id,
+            )
             return jsonify({"error": "document not found"}), 404
 
         file_path = Path(row.path)
@@ -593,6 +624,14 @@ def create_app():
             resp.set_etag(row.sha256_hex.lower())
 
         resp.headers["Cache-Control"] = "private, max-age=0, must-revalidate"
+
+        logger.info(
+            "event=document_access_success ip=%s user_id=%s document_id=%s",
+            request.remote_addr,
+            g.user["id"],
+            document_id,
+        )
+
         return resp
     
     # GET /api/get-version/<link>  → returns the watermarked PDF (inline)
