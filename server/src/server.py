@@ -35,11 +35,16 @@ from rmap_method import (
 )
 
 logger = logging.getLogger("security")
+logger.setLevel(logging.INFO)
 
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s %(levelname)s %(message)s"
+Path("/app/logs").mkdir(parents=True, exist_ok=True)
+
+security_log_handler = logging.FileHandler("/app/logs/security.log")
+security_log_handler.setFormatter(
+    logging.Formatter("%(asctime)s %(levelname)s %(message)s")
 )
+
+logger.addHandler(security_log_handler)
 
 def create_app():
     app = Flask(__name__)

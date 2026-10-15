@@ -9,6 +9,7 @@ services:
       - "5001:5000"
     volumes:
       - user-files:/app/storage
+      - security-logs:/app/logs
       - ./server/server_pub.asc:/run/secrets/server_pub.asc:ro
       - ./server/server_priv.asc:/run/secrets/server_priv.asc:ro
 
@@ -73,3 +74,4 @@ services:
 volumes:
   db-data:
   user-files:
+  security-logs:
