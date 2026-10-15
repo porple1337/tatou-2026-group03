@@ -1,58 +1,59 @@
-# tatou
-A web platform for pdf watermarking. This project is intended for pedagogical use, and contain security vulnerabilities. Do not deploy on an open network.
+### Tatou — Group 03
 
-## Instructions
+A PDF watermarking platform built with Flask and MariaDB.
 
-The following instructions are meant for a bash terminal on a Linux machine. If you are using something else, you will need to adapt them.
+Setup
 
-To clone the repo, you can simply run:
+Requires Python 3.12, Docker Compose, and Bash (Linux or WSL). From the repository root:
 
-```bash
-git clone https://github.com/nharrand/tatou-2026.git
-```
+# Dependencies
 
-Note that you should probably fork the repo and clone your own repo.
+python3.12 -m venv .venv
+source .venv/bin/activate
+pip install -e './server[dev]' pytest-cov
 
+# Run and deploy
 
-### Run python unit tests
+Create a root .env file with your deployment values:
 
-```bash
-cd tatou/server
+MARIADB_ROOT_PASSWORD=change-me
+MARIADB_USER=tatou
+MARIADB_PASSWORD=change-me
+SECRET_KEY=replace-with-a-long-random-secret
+FLAG_2=local-test
+RMAP_SOURCE_DOCUMENT_ID=1
+RMAP_WATERMARK_KEY=change-me
+RMAP_SERVER_PASSPHRASE=
 
-# Create a python virtual environement
-python3 -m venv .venv
-
-# Activate your virtual environement
-. .venv/bin/activate
-
-# Install the necessary dependencies
-python -m pip install -e ".[dev]"
-
-# Run the unit tests
-python -m pytest
-```
-
-### Deploy
-
-From the root of the directory:
-
-```bash
-# Create a file to set environement variables like passwords.
-cp sample.env .env
-
-# Edit .env and pick the passwords you want
-
-# Rebuild the docker image and deploy the containers
+chmod +x server/entrypoint.sh
 docker compose up --build -d
+docker compose logs -f server
 
-# Monitor logs in realtime 
-docker compose logs -f
+Open http://localhost:5000, register, log in, and upload a PDF. Select Watermark to create a personalised copy.
 
-# Test if the API is up
-http -v :5000/healthz
+Check the running API:
 
-# Open your browser at 127.0.0.1:5000 to check if the website is up.
-```
+curl http://localhost:5000/healthz
 
+Confirm "db_connected": true. 
+
+# Unit tests
+
+With the virtual environment active, run:
+
+python -m pytest server/test/test_watermarking_all_methods.py server/test/test_erik_watermark.py -v
+
+# API tests
+
+python -m pytest server/test/test_api.py server/test/test_document_authorization.py server/test/test_rmap_identity.py -v
+
+These use Flask’s test client and isolated test resources; a running deployment is not required. RMAP testing covers identity validation during initiation, not the complete handshake.
+
+# Coverage analysis
+
+python -m pytest --cov
+
+
+API endpoint documentation is available in server/API.md.
 
 
