@@ -519,12 +519,11 @@ def create_app():
                 rows = conn.execute(
                     text("""
                         SELECT v.id, v.documentid, v.link, v.intended_for, v.secret, v.method
-                        FROM Users u
-                        JOIN Documents d ON d.ownerid = u.id
+                        FROM Documents d
                         JOIN Versions v ON d.id = v.documentid
-                        WHERE u.login = :glogin AND d.id = :did
+                        WHERE d.ownerid = :uid AND d.id = :did
                     """),
-                    {"glogin": str(g.user["login"]), "did": document_id},
+                    {"uid": int(g.user["id"]), "did": document_id},
                 ).all()
         except Exception as e:
             return jsonify({"error": f"database error: {str(e)}"}), 503
@@ -549,12 +548,11 @@ def create_app():
                 rows = conn.execute(
                     text("""
                         SELECT v.id, v.documentid, v.link, v.intended_for, v.method
-                        FROM Users u
-                        JOIN Documents d ON d.ownerid = u.id
+                        FROM Documents d
                         JOIN Versions v ON d.id = v.documentid
-                        WHERE u.login = :glogin
+                        WHERE d.ownerid = :uid
                     """),
-                    {"glogin": str(g.user["login"])},
+                    {"uid": int(g.user["id"])},
                 ).all()
         except Exception as e:
             return jsonify({"error": f"database error: {str(e)}"}), 503
