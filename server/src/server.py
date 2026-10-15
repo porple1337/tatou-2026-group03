@@ -37,9 +37,13 @@ from rmap_method import (
 logger = logging.getLogger("security")
 logger.setLevel(logging.INFO)
 
-Path("/app/logs").mkdir(parents=True, exist_ok=True)
+security_log_path = Path(
+    os.getenv("SECURITY_LOG_PATH", "security.log")
+)
 
-security_log_handler = logging.FileHandler("/app/logs/security.log")
+security_log_path.parent.mkdir(parents=True, exist_ok=True)
+
+security_log_handler = logging.FileHandler(security_log_path)
 security_log_handler.setFormatter(
     logging.Formatter("%(asctime)s %(levelname)s %(message)s")
 )

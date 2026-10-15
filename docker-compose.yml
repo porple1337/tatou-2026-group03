@@ -15,6 +15,7 @@ services:
 
     environment:
       - PYTHONUNBUFFERED=1
+      - SECURITY_LOG_PATH=/app/logs/security.log
 
       # Database connection
       - DB_HOST=db
