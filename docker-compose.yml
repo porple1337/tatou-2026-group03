@@ -9,11 +9,13 @@ services:
       - "5000:5000"
     volumes:
       - user-files:/app/storage
+      - security-logs:/app/logs
       - ./server/server_pub.asc:/run/secrets/server_pub.asc:ro
       - ./server/server_priv.asc:/run/secrets/server_priv.asc:ro
 
     environment:
       - PYTHONUNBUFFERED=1
+      - SECURITY_LOG_PATH=/app/logs/security.log
 
       # Database connection
       - DB_HOST=db
@@ -74,3 +76,4 @@ services:
 volumes:
   db-data:
   user-files:
+  security-logs:
