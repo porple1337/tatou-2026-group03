@@ -768,16 +768,28 @@ def create_app():
     @require_auth
     def delete_document(document_id: int | None = None):
         # accept id from path, query (?id= / ?documentid=), or JSON body on POST
-        if not document_id:
+        if document_id is None:
+            payload = request.get_json(silent=True) if request.is_json else None
+            if request.is_json and not isinstance(payload, dict):
+                return jsonify({"error": "JSON object required"}), 400
             document_id = (
                 request.args.get("id")
                 or request.args.get("documentid")
-                or (request.is_json and (request.get_json(silent=True) or {}).get("id"))
+                or (payload.get("id") if payload else None)
             )
+        # bool and float are int-coercible in Python but are not document IDs.
+        if isinstance(document_id, bool) or not (
+            type(document_id) is int
+            or (isinstance(document_id, str) and document_id.isascii() and document_id.isdecimal())
+        ):
+            return jsonify({"error": "valid document id required"}), 400
         try:
             doc_id = int(document_id)
         except (TypeError, ValueError):
-            return jsonify({"error": "document id required"}), 400
+            return jsonify({"error": "valid document id required"}), 400
+        # Documents.id is BIGINT UNSIGNED in the MariaDB schema.
+        if not 1 <= doc_id <= 2**64 - 1:
+            return jsonify({"error": "valid document id required"}), 400
 
         # Fetch only a document owned by the authenticated user.
         # Parameterized SQL prevents document_id from becoming SQL code.
