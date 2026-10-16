@@ -35,7 +35,6 @@ import io
 import json
 import os
 import re
-from invisible_text_watermark import InvisibleTextWatermark
 
 from watermarking_method import (
     PdfSource,
@@ -46,6 +45,7 @@ from add_after_eof import AddAfterEOF
 from unsafe_bash_bridge_append_eof import UnsafeBashBridgeAppendEOF
 from watermarking_methods.erik_watermark import erik_watermark
 from watermarking_methods.omar_watermark import OmarWatermark
+from watermarking_methods.jens_watermark import InvisibleTextWatermark
 
 # --------------------
 # Method registry
