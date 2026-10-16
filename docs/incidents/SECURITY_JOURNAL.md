@@ -65,3 +65,12 @@ Here are the four actions taken:
 - **Reference:** 
 - **Verification:** `test_user_cannot_delete_another_users_document` authenticated as User 2 and attempted to delete a document owned by User 1. The endpoint returned `404`, and a database query confirmed that the document remained present. The complete local suite reported 11 passed and 6 skipped.
 - **Status:** Implemented and verified locally; GitHub Actions confirmation remains open.
+
+
+## 2026-10-13 — flag_3 captured
+
+**Detected:** 2026-10-13 20:55
+**What Happened:** We got sent an automated e-mail informing us of our flag_3 got captured.
+**Evidence:** We found that there were multiple Mr_Important users created with the exact name as the original file owner.
+**Impact:** We got our flag stolen.
+**Actions taken:** We promptly deleted these users and started working on a fix. We identified an authorization flaw in /api/list-versions and /api/list-all-versions: access was checked using usernames, allowing accounts with the same name as a legitimate owner to retrieve that owner’s watermarked-document links. We changed both endpoints to check document ownership against the authenticated user’s unique account ID. Duplicate usernames therefore no longer grant access to another account’s version listings. We also replaced the compromised FLAG_3 value in its PDF.  A unique-username database constraint was implemented as an additional safeguard.
