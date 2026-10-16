@@ -54,7 +54,7 @@ the proven entry path.
 **Actions taken:** We disabled the /api/load-plugin since it's unsafe in its current form. And rotated the flag value.
 
 
-Here are the four actions/bug fixes taken for increased security:
+Here are actions/bug fixes made for increased security:
 ### 1. Document authorization and database query
 
 - **Action:** Require authentication and ownership for document operations,
